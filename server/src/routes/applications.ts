@@ -162,7 +162,7 @@ applicationsRouter.post(
         formData.append('resume', blob, file.originalname)
         formData.append('job_description', jobDesc)
 
-        const pyRes = await fetch('http://localhost:5001/parse-resume', {
+        const pyRes = await fetch('http://127.0.0.1:5001/parse-resume', {
           method: 'POST',
           body: formData
         })
