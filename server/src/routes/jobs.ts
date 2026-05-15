@@ -316,6 +316,10 @@ jobsRouter.delete('/:id', requireRole('recruiter'), async (req: AuthRequest, res
       res.status(404).json({ message: 'Job not found' })
       return
     }
+    await pool.query('DELETE q FROM Question q JOIN Assessment a ON q.assessment_id = a.id WHERE a.job_id = ?', [jobId])
+    await pool.query('DELETE FROM Assessment WHERE job_id = ?', [jobId])
+    await pool.query('DELETE sa FROM ScreeningAttempt sa JOIN Application app ON sa.application_id = app.id WHERE app.job_id = ?', [jobId])
+    await pool.query('DELETE FROM Application WHERE job_id = ?', [jobId])
     await pool.query('DELETE FROM Job WHERE id = ?', [jobId])
     res.status(204).send()
   } catch (e) {

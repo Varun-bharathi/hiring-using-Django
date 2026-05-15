@@ -1,9 +1,7 @@
-import { useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { FileCheck, ExternalLink, Upload, Code } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { FileCheck, ExternalLink, Code } from 'lucide-react'
 import { applicationsApi } from '@/api/applications'
-import type { ApplicationListItem } from '@/api/jobs'
 
 const statusLabels: Record<string, string> = {
   screening: 'Screening',
@@ -23,38 +21,10 @@ const statusLabels: Record<string, string> = {
 }
 
 export function MyApplications() {
-  const qc = useQueryClient()
   const { data: applications = [], isLoading } = useQuery({
     queryKey: ['applications'],
     queryFn: () => applicationsApi.list(),
   })
-  const uploadMu = useMutation({
-    mutationFn: ({ appId, file }: { appId: string; file: File }) =>
-      applicationsApi.uploadResume(appId, file),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['applications'] })
-    },
-  })
-  const [pendingUploadId, setPendingUploadId] = useState<string | null>(null)
-  const fileRef = useRef<HTMLInputElement | null>(null)
-
-  function handleUploadClick(app: ApplicationListItem) {
-    if (app.status !== 'passed_screening' && app.status !== 'accepted') return
-    setPendingUploadId(app.id)
-    fileRef.current?.click()
-  }
-
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file || !pendingUploadId) return
-    uploadMu.mutate(
-      { appId: pendingUploadId, file },
-      { onSettled: () => setPendingUploadId(null) }
-    )
-    e.target.value = ''
-  }
-
-  const uploadingId = uploadMu.isPending ? uploadMu.variables?.appId ?? null : null
 
   return (
     <div className="space-y-6">
@@ -63,13 +33,7 @@ export function MyApplications() {
         <p className="mt-1 text-slate-400">Track progress and interview invitations</p>
       </div>
 
-      <input
-        ref={fileRef}
-        type="file"
-        accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        className="hidden"
-        onChange={handleFileChange}
-      />
+
       <div className="rounded-xl border border-slate-800 bg-slate-900/50 overflow-hidden">
         <div className="divide-y divide-slate-800">
           {isLoading ? (
@@ -93,24 +57,10 @@ export function MyApplications() {
                   <p className="text-sm text-slate-400">
                     {app.job?.location ?? '—'} · {app.job?.employment_type ?? '—'}
                   </p>
-                  {app.resume_jd_match != null && (
-                    <p className="mt-1 text-xs text-slate-500">
-                      Match: {app.resume_jd_match}%
-                    </p>
-                  )}
+
                 </div>
                 <div className="flex items-center gap-3">
-                  {(app.status === 'passed_screening') && (
-                    <button
-                      type="button"
-                      onClick={() => handleUploadClick(app)}
-                      disabled={uploadMu.isPending}
-                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 text-sm font-medium disabled:opacity-50"
-                    >
-                      <Upload className="w-4 h-4" />
-                      {uploadingId === app.id ? 'Uploading…' : 'Upload resume'}
-                    </button>
-                  )}
+
                   {app.status === 'assessment_sent' && (
                     <Link
                       to={`/assessment/aptitude/${app.id}`}

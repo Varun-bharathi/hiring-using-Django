@@ -5,6 +5,7 @@ import {
   Briefcase,
   ArrowRight,
   Send,
+  Trash2,
 } from 'lucide-react'
 import {
   BarChart,
@@ -34,6 +35,12 @@ export function RecruiterDashboard() {
     onSuccess: (_, jobId) => {
       qc.invalidateQueries({ queryKey: ['jobs'] })
       qc.invalidateQueries({ queryKey: ['job', jobId] })
+    },
+  })
+  const deleteMu = useMutation({
+    mutationFn: (jobId: string) => jobsApi.delete(jobId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['jobs'] })
     },
   })
   const liveJobs = jobs.filter((j) => j.status === 'live')
@@ -190,10 +197,22 @@ export function RecruiterDashboard() {
                   </Link>
                   <Link
                     to={`/recruiter/jobs/${job.id}/applicants`}
-                    className="text-sm font-medium text-brand-400 hover:text-brand-300"
+                    className="text-sm font-medium text-brand-400 hover:text-brand-300 mr-2"
                   >
                     View applicants
                   </Link>
+                  <button
+                    onClick={() => {
+                      if (confirm('Are you sure you want to delete this job?')) {
+                        deleteMu.mutate(job.id)
+                      }
+                    }}
+                    disabled={deleteMu.isPending && deleteMu.variables === job.id}
+                    className="p-1 rounded-lg text-slate-400 hover:bg-slate-700 hover:text-red-400 disabled:opacity-50"
+                    title="Delete Job"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
             )))}

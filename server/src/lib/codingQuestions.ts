@@ -4,7 +4,7 @@ export const CODING_POOL: QuestionTemplate[] = [
     {
         category: 'Leetcode',
         type: 'coding',
-        content: '560. Subarray Sum Equals K: Given an array of integers `nums` and an integer `k`, return the total number of subarrays whose sum equals to `k`.',
+        content: '560. Subarray Sum Equals K: Given an array of integers `nums` and an integer `k`, return the total number of subarrays whose sum equals to `k`.\n\nA subarray is a contiguous non-empty sequence of elements within an array.',
         examples: [
             { input: 'nums = [1,1,1], k = 2', output: '2', explanation: 'The subarrays are [1,1] and [1,1].' },
             { input: 'nums = [1,2,3], k = 3', output: '2', explanation: 'The subarrays are [1,2] and [3].' }

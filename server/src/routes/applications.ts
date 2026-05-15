@@ -1,53 +1,37 @@
 import type { Request } from 'express'
 import { Router } from 'express'
-import path from 'path'
 import fs from 'fs'
-import multer from 'multer'
 import crypto from 'crypto'
 import { pool } from '../lib/db.js'
+import { exec } from 'child_process'
+import util from 'util'
 import { authMiddleware, requireRole, type AuthRequest } from '../middleware/auth.js'
+
+const execAsync = util.promisify(exec)
+
+async function runLocalCode(language: string, source: string): Promise<{ output: string, error: string }> {
+  const tmpId = crypto.randomUUID()
+  const ext = language === 'python' ? 'py' : 'js'
+  const filePath = `./tmp_${tmpId}.${ext}`
+  await fs.promises.writeFile(filePath, source)
+  
+  try {
+    const cmd = language === 'python' ? `python ${filePath}` : `node ${filePath}`
+    const { stdout, stderr } = await execAsync(cmd, { timeout: 5000 })
+    await fs.promises.unlink(filePath).catch(() => {})
+    return { output: stdout.trim(), error: stderr.trim() }
+  } catch (err: any) {
+    await fs.promises.unlink(filePath).catch(() => {})
+    return { output: err.stdout?.trim() || '', error: err.stderr?.trim() || err.message || 'Execution failed' }
+  }
+}
 import { QUESTION_POOL, type QuestionTemplate } from '../lib/questionBank.js'
 import { APTITUDE_POOL } from '../lib/aptitudeQuestions.js'
 import { CODING_POOL } from '../lib/codingQuestions.js'
 
 export const applicationsRouter = Router()
 
-const uploadsDir = path.join(process.cwd(), 'uploads')
-fs.mkdirSync(uploadsDir, { recursive: true })
 
-interface MulterFile {
-  originalname: string
-  mimetype: string
-}
-
-const resumeUpload = multer({
-  storage: multer.diskStorage({
-    destination: (
-      _req: Request,
-      _file: MulterFile,
-      cb: (e: Error | null, d: string) => void
-    ) => cb(null, uploadsDir),
-    filename: (req: Request, file: MulterFile, cb: (e: Error | null, n: string) => void) => {
-      const ext = path.extname(file.originalname) || '.pdf'
-      const id = (req.params as { id?: string }).id ?? 'unknown'
-      cb(null, `resume-${id}-${Date.now()}${ext}`)
-    },
-  }),
-  fileFilter: (
-    _req: Request,
-    file: MulterFile,
-    cb: (e: Error | null, accept?: boolean) => void
-  ) => {
-    const allowed = [
-      'application/pdf',
-      'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    ]
-    if (allowed.includes(file.mimetype)) cb(null, true)
-    else cb(new Error('Only PDF and DOC/DOCX are allowed'))
-  },
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
-})
 
 applicationsRouter.use(authMiddleware)
 
@@ -121,94 +105,7 @@ applicationsRouter.get('/', async (req: AuthRequest, res) => {
   }
 })
 
-applicationsRouter.post(
-  '/:id/resume',
-  requireRole('job_seeker'),
-  resumeUpload.single('resume'),
-  async (req: AuthRequest, res) => {
-    try {
-      const u = req.user!
-      const { id } = req.params
-      const file = (req as unknown as { file?: { path: string; filename: string; mimetype: string; originalname: string } }).file
-      if (!file) {
-        res.status(400).json({ message: 'Resume file (PDF/DOC/DOCX) required' })
-        return
-      }
 
-      const [apps] = await pool.query<any[]>('SELECT * FROM Application WHERE id = ?', [id])
-      const app = apps[0]
-
-      if (!app || app.job_seeker_id !== u.userId) {
-        res.status(404).json({ message: 'Application not found' })
-        return
-      }
-      if (app.status !== 'passed_screening' && app.status !== 'accepted') {
-        res.status(400).json({ message: 'Resume upload only allowed after passing screening or being accepted' })
-        return
-      }
-      const resumeUrl = `/api/uploads/${file.filename}`
-
-      let matchScore = 0
-      let resumeSummary = 'Parsed via Python Service'
-
-      try {
-        const [jobs] = await pool.query<any[]>('SELECT description FROM Job WHERE id = ?', [app.job_id])
-        const jobDesc = jobs[0]?.description || ''
-
-        const fileBuffer = fs.readFileSync(path.join(uploadsDir, file.filename))
-        const blob = new Blob([fileBuffer], { type: file.mimetype })
-
-        const formData = new FormData()
-        formData.append('resume', blob, file.originalname)
-        formData.append('job_description', jobDesc)
-
-        const pyRes = await fetch('http://127.0.0.1:5001/parse-resume', {
-          method: 'POST',
-          body: formData
-        })
-
-        if (pyRes.ok) {
-          const pyData = await pyRes.json() as any
-          matchScore = pyData.resume_score ?? 0
-          if (pyData.extracted_text_preview) {
-            resumeSummary = pyData.extracted_text_preview
-          }
-        }
-      } catch (err) {
-        console.error('Failed to call Resume Parser API:', err)
-      }
-
-      const resumeParsed = JSON.stringify({
-        skills: [],
-        experience: 'Analyzed by AI',
-        summary: resumeSummary,
-      })
-
-      await pool.query(
-        'UPDATE Application SET resume_url = ?, resume_parsed = ?, resume_jd_match = ?, status = ?, resume_submitted_at = NOW(), updated_at = NOW() WHERE id = ?',
-        [resumeUrl, resumeParsed, matchScore, 'resume_submitted', id]
-      )
-
-      const [updatedApps] = await pool.query<any[]>(`
-        SELECT 
-          a.*,
-          j.title as job_title, j.location as job_location, j.employment_type as job_employment_type, j.required_skills as job_required_skills,
-          u.email as seeker_email,
-          p.full_name as seeker_full_name
-        FROM Application a
-        JOIN Job j ON a.job_id = j.id
-        JOIN User u ON a.job_seeker_id = u.id
-        LEFT JOIN JobSeekerProfile p ON u.id = p.user_id
-        WHERE a.id = ?
-      `, [id])
-
-      res.json(appToJson(updatedApps[0]))
-    } catch (e) {
-      console.error(e)
-      res.status(500).json({ message: e instanceof Error ? e.message : 'Failed to upload resume' })
-    }
-  }
-)
 
 applicationsRouter.patch('/:id/accept', requireRole('recruiter'), async (req: AuthRequest, res) => {
   try {
@@ -231,7 +128,7 @@ applicationsRouter.patch('/:id/accept', requireRole('recruiter'), async (req: Au
     const newStatus =
       app.status === 'screening' || app.status === 'screening_submitted'
         ? 'passed_screening'
-        : app.status === 'resume_submitted'
+        : app.status === 'passed_screening' || app.status === 'resume_submitted'
           ? 'shortlisted'
           : app.status === 'assessment_completed'
             ? 'passed_aptitude'
@@ -539,7 +436,13 @@ export function prepareSource(lang: string, userCode: string, input: string, fun
   }
   if (lang === 'python') {
     let pyInput = input.replace(/true/g, 'True').replace(/false/g, 'False').replace(/null/g, 'None')
-    return `${userCode}\nimport json\ntry:\n    result = ${funcName}(${pyInput})\n    print(json.dumps(result))\nexcept Exception as e:\n    print(str(e))`
+    let wrapper = `import json\nfrom typing import *\n\n${userCode}\n`
+    if (userCode.includes('class Solution')) {
+      wrapper += `\ntry:\n    sol = Solution()\n    result = sol.${funcName}(${pyInput})\n    print(json.dumps(result))\nexcept Exception as e:\n    print(str(e))`
+    } else {
+      wrapper += `\ntry:\n    result = ${funcName}(${pyInput})\n    print(json.dumps(result))\nexcept Exception as e:\n    print(str(e))`
+    }
+    return wrapper
   }
   return userCode
 }
@@ -597,27 +500,11 @@ applicationsRouter.post(
         const source = prepareSource(language, code, tc.input, funcName)
 
         try {
-          const runRes = await fetch('https://emkc.org/api/v2/piston/execute', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              language: pistonLang,
-              version: '*',
-              files: [{ content: source }]
-            })
-          })
-
-          if (!runRes.ok) throw new Error('Piston error')
-
-          const runData = await runRes.json()
-          const output = (runData as any).run?.stdout?.trim() ?? ''
-          const error = (runData as any).run?.stderr?.trim() ?? ''
-
+          const { output, error } = await runLocalCode(language, source)
           const passed = !error && (output === tc.expected || output === JSON.stringify(JSON.parse(tc.expected)))
-
           results.push({ input: tc.input, expected: tc.expected, output: error || output, passed })
-        } catch (err) {
-          results.push({ input: tc.input, expected: tc.expected, output: 'Error executing code', passed: false })
+        } catch (err: any) {
+          results.push({ input: tc.input, expected: tc.expected, output: err.message || 'Error executing code', passed: false })
         }
       }
 
@@ -698,11 +585,71 @@ applicationsRouter.post('/:id/coding-assessment/start', requireRole('job_seeker'
         id: `q-${idx}`,
         content: q.content,
         type: 'coding',
+        examples: q.examples,
+        starterCode: q.starterCode,
       })),
       duration_minutes: 60,
     })
   } catch (e) {
     console.error(e)
     res.status(500).json({ message: 'Failed to start coding assessment' })
+  }
+})
+
+applicationsRouter.post('/:id/coding-assessment/submit', requireRole('job_seeker'), async (req: AuthRequest, res) => {
+  try {
+    const u = req.user!
+    const { id } = req.params
+    const { answers, language } = req.body
+
+    const [attempts] = await pool.query<any[]>('SELECT * FROM ScreeningAttempt WHERE application_id = ? AND type = "coding"', [id])
+    const attempt = attempts[0]
+    if (!attempt) {
+      res.status(404).json({ message: 'Assessment not found' })
+      return
+    }
+    const data = JSON.parse(attempt.answers as string)
+    const questions = data.questions as QuestionTemplate[]
+
+    let score = 0
+
+    for (let idx = 0; idx < questions.length; idx++) {
+      const q = questions[idx]
+      const userCode = answers[idx.toString()]
+      if (!userCode || !q.testCases) continue
+
+      let passedCases = 0
+      const funcName = getFuncName(q.content)
+      for (const tc of q.testCases) {
+        const source = prepareSource(language, userCode, tc.input, funcName)
+        try {
+          const { output, error } = await runLocalCode(language, source)
+          const passed = !error && (output === tc.expected || output === JSON.stringify(JSON.parse(tc.expected)))
+          if (passed) passedCases++
+        } catch (err) {
+          // ignore error
+        }
+      }
+      
+      const questionScore = (passedCases / q.testCases.length) * 25
+      score += questionScore
+    }
+
+    score = Math.round(score)
+
+    await pool.query(
+      'UPDATE ScreeningAttempt SET submitted_at = NOW(), score = ?, answers = ? WHERE id = ?',
+      [score, JSON.stringify({ ...data, userAnswers: answers }), attempt.id]
+    )
+
+    await pool.query(
+      'UPDATE Application SET coding_score = ?, status = "coding_completed", updated_at = NOW() WHERE id = ?',
+      [score, id]
+    )
+
+    res.json({ message: 'Coding assessment submitted successfully' })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ message: 'Failed to submit' })
   }
 })

@@ -6,7 +6,7 @@ import { jobsApi, type ApplicationListItem } from '@/api/jobs'
 import { applicationsApi } from '@/api/applications'
 import { CandidateDetailModal } from '@/components/recruiter/CandidateDetailModal'
 
-type SortKey = 'name' | 'match' | 'score' | 'status'
+type SortKey = 'name' | 'score' | 'status'
 type SortDir = 'asc' | 'desc'
 
 const statusLabels: Record<string, string> = {
@@ -94,9 +94,6 @@ export function JobApplicants() {
         case 'name':
           cmp = (a.job_seeker?.full_name ?? '').localeCompare(b.job_seeker?.full_name ?? '')
           break
-        case 'match':
-          cmp = (a.resume_jd_match ?? 0) - (b.resume_jd_match ?? 0)
-          break
 
         case 'score':
           cmp = (a.screening_score ?? 0) - (b.screening_score ?? 0)
@@ -175,21 +172,7 @@ export function JobApplicants() {
                 </span>
               </th>
 
-              <th
-                className="text-left py-3 px-4 sortable-th"
-                onClick={() => toggleSort('match')}
-                data-sort-active={sort.key === 'match' ? true : undefined}
-              >
-                <span className="flex items-center gap-1">
-                  Resume Match
-                  {sort.key === 'match' &&
-                    (sort.dir === 'asc' ? (
-                      <ChevronUp className="w-4 h-4" />
-                    ) : (
-                      <ChevronDown className="w-4 h-4" />
-                    ))}
-                </span>
-              </th>
+
               <th
                 className="text-left py-3 px-4 sortable-th"
                 onClick={() => toggleSort('score')}
@@ -239,11 +222,6 @@ export function JobApplicants() {
                   </button>
                 </td>
 
-                <td className="py-3 px-4">
-                  <span className="font-mono text-brand-400">
-                    {app.resume_jd_match != null ? `${app.resume_jd_match}%` : '—'}
-                  </span>
-                </td>
 
                 <td className="py-3 px-4">
                   <div className="flex flex-col gap-1">

@@ -165,11 +165,7 @@ export function CodingTest() {
                         className="bg-slate-800 text-slate-300 text-xs rounded px-2 py-1 border border-slate-700 outline-none focus:border-brand-500"
                     >
                         <option value="python">Python</option>
-                        <option value="java">Java</option>
                         <option value="javascript">JavaScript</option>
-                        <option value="csharp">C#</option>
-                        <option value="c">C</option>
-                        <option value="cpp">C++</option>
                     </select>
                     <div className={`flex items-center gap-2 font-mono text-lg ${timeLeft && timeLeft < 300 ? 'text-red-400' : 'text-slate-300'}`}>
                         <Clock className="w-4 h-4" />
@@ -209,7 +205,7 @@ export function CodingTest() {
                             {currentQuestion && (
                                 <>
                                     <h3 className="text-xl text-white mb-2">{currentQuestion.content?.split(':')[0]}</h3>
-                                    <p className="text-slate-300 mb-4">{currentQuestion.content?.split(':')[1] || currentQuestion.content}</p>
+                                    <p className="text-slate-300 mb-4 whitespace-pre-wrap">{currentQuestion.content?.split(':')[1] || currentQuestion.content}</p>
 
                                     {currentQuestion.examples && currentQuestion.examples.map((ex: any, i: number) => (
                                         <div key={i} className="mb-4">
